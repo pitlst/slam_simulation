@@ -1,20 +1,20 @@
 // ============================================================================
-// wsl_client_zmq.cpp — C++23 ZeroMQ 版 WSL 传感器数据订阅客户端
+// wsl_client_zmq.cpp — C++23 ZMQ subscriber client for sensor data
 //
-// 相比裸 TCP 版的差异:
-//   ✓ 不需要自己处理粘包/拆包 (ZMQ 自带消息边界)
-//   ✓ 不需要手动重连逻辑 (ZMQ 自动重连)
-//   ✓ 内置 topic 过滤, 可只订阅需要的传感器
-//   ✓ 可以随时追加第二个消费者 (录盘/可视化) 而不用改发布者
+// Differences from raw TCP version:
+//   ✓ No need to handle framing (ZMQ provides message boundaries)
+//   ✓ No manual reconnect logic (ZMQ auto-reconnects)
+//   ✓ Built-in topic filtering
+//   ✓ Easy to add more consumers without changing publisher
 //
-// 编译:
+// Build:
 //   g++-16 -std=c++23 -O2 -o wsl_client_zmq wsl_client_zmq.cpp -lzmq
 //
-// 运行:
-//   ./wsl_client_zmq                    (默认 127.0.0.1:12345)
-//   ./wsl_client_zmq --host 172.x.x.x   (指定 Windows IP)
+// Run:
+//   ./wsl_client_zmq                   (default 127.0.0.1:12345)
+//   ./wsl_client_zmq --host 172.x.x.x
 //
-// 安装依赖 (WSL):
+// Dependencies (WSL):
 //   sudo apt install libzmq3-dev libcppzmq-dev
 // ============================================================================
 
@@ -33,10 +33,10 @@
 #include <span>
 
 // ── ZeroMQ (C++ bindings, header-only) ──────────────────────────────────
-#include <zmq.hpp>       // 核心: zmq::context_t, zmq::socket_t, zmq::message_t
+#include <zmq.hpp>       // core: zmq::context_t, zmq::socket_t, zmq::message_t
 
 // ============================================================================
-//  字节序工具 (与 Python 端 struct.pack("!...") 一致: 大端序)
+//  Endian helpers (match Python struct.pack("!...") big-endian)
 // ============================================================================
 
 namespace byte_util {
@@ -65,7 +65,7 @@ namespace byte_util {
 
 
 // ============================================================================
-//  传感器数据结构
+//  Sensor data structures
 // ============================================================================
 
 struct CameraFrame {
@@ -84,6 +84,13 @@ struct LidarFrame {
 
 struct Point3D { double x, y, z; };
 
+// IMU data: accelerometer (m/s²) + gyroscope (rad/s)
+struct ImuFrame {
+    uint64_t timestamp_us;
+    float    accel[3];   // ax, ay, az — m/s²
+    float    gyro[3];    // gx, gy, gz — rad/s
+};
+
 struct SensorInfo {
     double lidar_fov  = 3.0;
     double lidar_vfov = 1.03;
@@ -91,7 +98,7 @@ struct SensorInfo {
 
 
 // ============================================================================
-//  元信息 JSON 极简解析
+//  Minimal metadata JSON parser
 // ============================================================================
 
 [[nodiscard]] static
@@ -126,11 +133,11 @@ SensorInfo parse_metadata(std::string_view json) {
 
 
 // ============================================================================
-//  反序列化: bytes → 结构化数据
+//  Deserialization: bytes → structured data
 // ============================================================================
-//  ZMQ 版本的消息 payload 格式 (多部分消息的第二部分):
+//  ZMQ message payload format (multipart message second part):
 //
-//  相机 "camera":  ts_us(8B) + width(2B) + height(2B) + BGRA pixels(NB)
+//  Camera "camera":  ts_us(8B) + width(2B) + height(2B) + BGRA pixels(NB)
 //  LiDAR "lidar":  ts_us(8B) + num_layers(2B) + horiz_res(2B) + ranges(NB)
 
 [[nodiscard]] CameraFrame parse_camera(std::span<const uint8_t> payload) {
@@ -162,7 +169,7 @@ SensorInfo parse_metadata(std::string_view json) {
     uint16_t hres  = byte_util::read_be16(payload.data() + 10);
 
     size_t n_pts = static_cast<size_t>(layers) * hres;
-    size_t expected = 12 + n_pts * 4;   // 12字节头部 + N个float32
+    size_t expected = 12 + n_pts * 4;   // 12-byte header + N float32
     if (payload.size() != expected)
         throw std::runtime_error("Lidar payload size mismatch");
 
@@ -181,7 +188,35 @@ SensorInfo parse_metadata(std::string_view json) {
 
 
 // ============================================================================
-//  LiDAR 距离 → 3D 点云
+//  IMU deserialization
+// ============================================================================
+//  IMU "imu":  ts_us(8B) + ax(4B float) + ay(4B float) + az(4B float)
+//                        + gx(4B float) + gy(4B float) + gz(4B float)
+
+[[nodiscard]] ImuFrame parse_imu(std::span<const uint8_t> payload) {
+    if (payload.size() != 32)
+        throw std::runtime_error("IMU payload size mismatch (expected 32 bytes)");
+
+    uint64_t ts = byte_util::read_be64(payload.data());
+    ImuFrame frame{
+        .timestamp_us = ts,
+        .accel = {
+            byte_util::read_be_float(payload.data() + 8),
+            byte_util::read_be_float(payload.data() + 12),
+            byte_util::read_be_float(payload.data() + 16),
+        },
+        .gyro = {
+            byte_util::read_be_float(payload.data() + 20),
+            byte_util::read_be_float(payload.data() + 24),
+            byte_util::read_be_float(payload.data() + 28),
+        },
+    };
+    return frame;
+}
+
+
+// ============================================================================
+//  LiDAR range → 3D point cloud
 // ============================================================================
 
 [[nodiscard]] std::vector<Point3D> lidar_to_pointcloud(
@@ -207,9 +242,9 @@ SensorInfo parse_metadata(std::string_view json) {
             double r = lidar.ranges[static_cast<size_t>(j) * lidar.horiz_res + i];
             if (!std::isfinite(r) || r <= 0.0) continue;
             points.push_back({
-                r * cos_phi * std::sin(theta),   // X: 向前
-                r * cos_phi * std::cos(theta),   // Y: 向左
-                r * sin_phi                      // Z: 向上
+                r * cos_phi * std::sin(theta),   // X: forward
+                r * cos_phi * std::cos(theta),   // Y: left
+                r * sin_phi                      // Z: up
             });
         }
     }
@@ -218,11 +253,11 @@ SensorInfo parse_metadata(std::string_view json) {
 
 
 // ============================================================================
-//  主函数
+//  Main
 // ============================================================================
 
 int main(int argc, char* argv[]) {
-    // ── 命令行参数 ────────────────────────────────────────
+    // ── Command-line args ───────────────────────────────────
     std::string host = "127.0.0.1";
     uint16_t    port = 12345;
 
@@ -231,36 +266,36 @@ int main(int argc, char* argv[]) {
         if (arg == "--host" && i + 1 < argc) host = argv[++i];
         else if (arg == "--port" && i + 1 < argc) port = uint16_t(std::stoi(argv[++i]));
         else {
-            std::println(stderr, "用法: {} [--host HOST] [--port PORT]", argv[0]);
+            std::println(stderr, "Usage: {} [--host HOST] [--port PORT]", argv[0]);
             return 1;
         }
     }
 
-    // ── ZMQ 初始化 ────────────────────────────────────────
+    // ── ZMQ init ────────────────────────────────────────────
     zmq::context_t context(1);
 
-    // SUB 套接字: 连接发布者, 订阅所有 topic
+    // SUB socket: connect to publisher, subscribe to all topics
     zmq::socket_t subscriber(context, zmq::socket_type::sub);
-    subscriber.set(zmq::sockopt::rcvhwm, 4);    // 最多缓冲 4 帧
-    subscriber.set(zmq::sockopt::linger, 0);     // 退出时丢弃未处理消息
+    subscriber.set(zmq::sockopt::rcvhwm, 4);    // buffer at most 4 frames
+    subscriber.set(zmq::sockopt::linger, 0);     // drop queued on exit
 
-    // 关键: 设置订阅前缀。"" 空字符串 = 订阅全部
-    // 也可以精细控制: "camera" = 只收相机; "lidar" = 只收雷达
+    // Key: set subscription prefix. "" empty = subscribe to all
+    // Can filter: "camera" = camera only; "lidar" = lidar only
     subscriber.set(zmq::sockopt::subscribe, "");
 
     std::string endpoint = "tcp://" + host + ":" + std::to_string(port);
     subscriber.connect(endpoint);
     std::println(stderr, "[ZMQ] SUB connected to {}", endpoint);
 
-    // ── 等待并接收首条元信息 ──────────────────────────────
-    // ZMQ SUB 有 "slow joiner" 现象: 刚 connect 后的前几毫秒可能丢消息
-    // 发布端已经做了 sleep(1) + 周期性重发, 所以这里不需要额外等待
+    // ── Wait for first metadata message ─────────────────────
+    // ZMQ SUB exhibits "slow joiner": the first ms after connect may drop
+    // The publisher does sleep(1) + periodic re-publish, so no extra wait
     std::println(stderr, "[ZMQ] Waiting for first info message...");
 
     SensorInfo sensor_info;
     bool got_info = false;
 
-    // 最多等 3 秒拿元信息, 拿不到就 fallback
+    // Wait up to 3 seconds for metadata, fallback to defaults
     {
         zmq::pollitem_t poll_items[] = {
             { static_cast<void*>(subscriber), 0, ZMQ_POLLIN, 0 }
@@ -291,21 +326,23 @@ int main(int argc, char* argv[]) {
     if (!got_info)
         std::println(stderr, "[ZMQ] No metadata within 3s, using defaults");
 
-    // ── 主接收循环 ────────────────────────────────────────
+    // ── Main receive loop ───────────────────────────────────
     int    frame_count   = 0;
     size_t last_pts      = 0;
     int    last_cam_w    = 0, last_cam_h = 0;
+    float  last_imu_accel[3] = {0, 0, 0};
+    float  last_imu_gyro[3]  = {0, 0, 0};
     auto   last_tick     = std::chrono::steady_clock::now();
 
     try {
         while (true) {
-            // ZMQ 多部分消息接收:
-            //   第1部分: topic (字符串)
-            //   第2部分: payload (二进制)
+            // ZMQ multipart message receive:
+            //   Part 1: topic (string)
+            //   Part 2: payload (binary)
             zmq::message_t topic_msg, payload_msg;
 
-            // recv 返回时, 消息总是完整的——ZMQ 保证了这一点
-            // 不会出现"只收到半个相机帧"的情况
+            // recv always returns a complete message — ZMQ guarantees this
+            // No risk of receiving "half a camera frame"
             subscriber.recv(topic_msg);
             subscriber.recv(payload_msg);
 
@@ -319,17 +356,24 @@ int main(int argc, char* argv[]) {
                 auto cam = parse_camera(payload_bytes);
                 last_cam_w = cam.width;
                 last_cam_h = cam.height;
-                // 你的 SLAM 算法在这里使用 cam.image
-                // 内存布局: BGRA, 行优先, (height × width × 4) bytes
-                // 注意: cam.image 在解析时复制了一份, 可以安全传出
+                // Your SLAM algorithm uses cam.image here
+                // Memory layout: BGRA, row-major, (height × width × 4) bytes
+                // Note: cam.image is a copy, safe to pass to another thread
 
             } else if (topic == "lidar") {
                 auto lidar = parse_lidar(payload_bytes);
                 auto cloud = lidar_to_pointcloud(lidar,
                     sensor_info.lidar_fov, sensor_info.lidar_vfov);
                 last_pts = cloud.size();
-                // 你的 SLAM 算法在这里使用 cloud (std::vector<Point3D>)
+                // Your SLAM algorithm uses cloud (std::vector<Point3D>) here
                 // cloud[i].x, cloud[i].y, cloud[i].z
+
+            } else if (topic == "imu") {
+                auto imu = parse_imu(payload_bytes);
+                std::memcpy(last_imu_accel, imu.accel, sizeof(imu.accel));
+                std::memcpy(last_imu_gyro,  imu.gyro,  sizeof(imu.gyro));
+                // Your SLAM algorithm uses imu.accel / imu.gyro here
+                // accel: m/s², gyro: rad/s, timestamp: imu.timestamp_us
 
             } else if (topic == "info") {
                 std::string_view json_str(
@@ -341,14 +385,18 @@ int main(int argc, char* argv[]) {
                 std::println(stderr, "[ZMQ] Unknown topic: {}", topic);
             }
 
-            // 每秒统计
+            // Per-second stats
             ++frame_count;
             auto now = std::chrono::steady_clock::now();
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                                now - last_tick).count();
             if (elapsed >= 1) {
-                std::println(stderr, "[ZMQ] {} msgs/s | cam = {}x{} | lidar = {} pts",
-                             frame_count, last_cam_w, last_cam_h, last_pts);
+                std::println(stderr,
+                    "[ZMQ] {} msgs/s | cam = {}x{} | lidar = {} pts"
+                    " | imu accel = ({:.2f}, {:.2f}, {:.2f}) gyro = ({:.2f}, {:.2f}, {:.2f})",
+                    frame_count, last_cam_w, last_cam_h, last_pts,
+                    last_imu_accel[0], last_imu_accel[1], last_imu_accel[2],
+                    last_imu_gyro[0],  last_imu_gyro[1],  last_imu_gyro[2]);
                 frame_count = 0;
                 last_tick   = now;
             }
@@ -359,7 +407,7 @@ int main(int argc, char* argv[]) {
         std::println(stderr, "[ZMQ] Error: {}", e.what());
     }
 
-    // ZMQ 的 RAII 析构会自动关闭 socket + 终止上下文, 无需手动处理
+    // ZMQ RAII dtor closes socket + terminates context automatically
     std::println(stderr, "[ZMQ] Shutdown");
     return 0;
 }

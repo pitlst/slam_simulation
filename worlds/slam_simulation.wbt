@@ -7,10 +7,11 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 WorldInfo {
   contactProperties [
     ContactProperties {
+      coulombFriction [
+        0.8
+      ]
       bounce 0
-      softERP 0.2
       softCFM 0.0001
-      coulombFriction 0.8
     }
   ]
 }
@@ -77,21 +78,87 @@ Solid {
 Robot {
   children [
     Lidar {
-      name "览沃Mid360"
-      fieldOfView 3
+      name "LivoxMid360"
+      fieldOfView 6.2832
       verticalFieldOfView 1.03
       numberOfLayers 18
       minRange 0.1
-      maxRange 30
+      maxRange 40
     }
     Camera {
-      rotation 0 1 0 0
-      name "海康CA01610UC"
+      translation 0 0 1
+      rotation 0 0 1 1.5708
+      name "MV-CS016-10UC-V5"
       fieldOfView 1.047
-      width 640
-      height 640
+      width 1440
+      height 1080
+    }
+    Solid {
+      translation 0 -0.05 0
+      children [
+        Accelerometer {
+          name "imu_accelerometer"
+        }
+        Gyro {
+          name "imu_gyro"
+        }
+      ]
+      name "imu_sensor_frame"
+      boundingObject Box {
+        size 0.02 0.02 0.02
+      }
+      physics Physics {
+        density -1
+        mass 1
+      }
+    }
+    Pose {
+      translation 0 -0.05 0
+      children [
+        Shape {
+          appearance Appearance {
+            material Material {
+              diffuseColor 0.15 0.15 0.2
+            }
+          }
+          geometry Box {
+            size 0.24 0.08 0.14
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0 -0.13 0.02
+      children [
+        Shape {
+          appearance Appearance {
+            material Material {
+              diffuseColor 0.1 0.1 0.15
+            }
+          }
+          geometry Box {
+            size 0.04 0.08 0.04
+          }
+        }
+      ]
+    }
+    Pose {
+      translation 0 -0.05 0.072
+      children [
+        Shape {
+          appearance Appearance {
+            material Material {
+              diffuseColor 0.02 0.02 0.15
+              transparency 0.3
+            }
+          }
+          geometry Box {
+            size 0.18 0.04 0.005
+          }
+        }
+      ]
     }
   ]
-  name "手持扫描仪"
+  name "handheld_scanner"
   controller "my_controller"
 }

@@ -8,4 +8,4 @@ orthographicViewHeight: 1
 textFiles: -1
 globalOptionalRendering: CoordinateSystem
 consoles: Console:All:All
-renderingDevicePerspectives: 手持扫描仪:海康CA01610UC;1;0.253125;0;0
+renderingDevicePerspectives: handheld_scanner:HikvisionCA01610UC;1;1;0;0
