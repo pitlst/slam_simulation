@@ -1,0 +1,39 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+
+WorldInfo {
+}
+Viewpoint {
+  orientation -0.13988250230835086 0.10183760005683552 0.9849172497030491 1.837586794873981
+  position 0.42242829836105206 -1.8836566664106476 0.6375563350903741
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+}
+Robot {
+  children [
+    Lidar {
+      name "览沃Mid360"
+      fieldOfView 3
+      verticalFieldOfView 1.03
+      numberOfLayers 18
+      minRange 0.1
+      maxRange 30
+    }
+    Camera {
+      rotation 0 1 0 0
+      name "海康CA01610UC"
+      fieldOfView 1.047
+      width 640
+      height 640
+    }
+  ]
+  name "手持扫描仪"
+  controller "my_controller"
+}
