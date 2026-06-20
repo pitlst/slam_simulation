@@ -5,16 +5,74 @@ EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/project
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
 
 WorldInfo {
+  contactProperties [
+    ContactProperties {
+      bounce 0
+      softERP 0.2
+      softCFM 0.0001
+      coulombFriction 0.8
+    }
+  ]
 }
 Viewpoint {
-  orientation -0.13988250230835086 0.10183760005683552 0.9849172497030491 1.837586794873981
-  position 0.42242829836105206 -1.8836566664106476 0.6375563350903741
+  orientation 0.042677669123494966 -0.9965528016512455 -0.07114161988062336 5.442568189341846
+  position -13.615594281465107 -0.9512442820186999 19.38637380702728
 }
 TexturedBackground {
 }
 TexturedBackgroundLight {
 }
 RectangleArena {
+  floorSize 10 10
+}
+Solid {
+  translation 0 0 -0.05
+  name "floor_collision"
+  boundingObject Box {
+    size 10 10 0.1
+  }
+}
+Solid {
+  translation -0.19 0.61 0.28
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.65 0.65 0.65
+        }
+      }
+      geometry Box {
+        size 3 0.8 0.2
+      }
+    }
+  ]
+  name "right_wall"
+  boundingObject Box {
+    size 3 0.8 0.2
+  }
+  physics Physics {
+  }
+}
+Solid {
+  translation 2.78 1 0.97
+  children [
+    Shape {
+      appearance Appearance {
+        material Material {
+          diffuseColor 0.15 0.7 0.7
+        }
+      }
+      geometry Box {
+        size 1 1 1
+      }
+    }
+  ]
+  name "cyan_cube"
+  boundingObject Box {
+    size 1 1 1
+  }
+  physics Physics {
+  }
 }
 Robot {
   children [

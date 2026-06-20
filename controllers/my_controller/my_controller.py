@@ -1,33 +1,10 @@
-"""
-Webots SLAM 仿真控制器 — ZeroMQ PUB 版本
-=========================================
-替代方案: 用 ZMQ PUB/SUB 代替裸 TCP, 提供消息边界 + 多消费者扇出.
-
-如需切回裸 TCP 版, 编辑 world 文件将 controller 改回 "my_controller".
-
-安装依赖:
-    pip install pyzmq
-
-架构:
-    PUB (Windows/Webots)                          SUB (WSL/算法)
-    ├─ topic "camera"  ── multipart ───────→      choose your topics
-    ├─ topic "lidar"   ── multipart ───────→
-    └─ topic "info"    ── JSON ───────────→
-"""
-
 import sys
 import traceback
 import struct
 import json
+import zmq
 import time as time_module
 from controller import Robot # type: ignore
-
-try:
-    import zmq
-    HAS_ZMQ = True
-except ImportError:
-    print("[CTRL] FATAL: pyzmq not installed. Run: pip install pyzmq", file=sys.stderr)
-    sys.exit(1)
 
 
 # ============================================================
@@ -38,8 +15,8 @@ ZMQ_PORT = 12345
 PUBLISH_INTERVAL_SEC = 32  # 每隔 N 个仿真步重发一次元信息 (供迟到订阅者)
 
 
-def _make_info_dict(robot, camera, lidar) -> dict:
-    """构造元信息字典 (与 TCP 版完全一致)"""
+def _make_info_dict(robot, camera, lidar, lidar_width: int) -> dict:
+    """构造元信息字典"""
     return {
         "protocol": "1.0",
         "robot_name": robot.getName(),
@@ -54,7 +31,9 @@ def _make_info_dict(robot, camera, lidar) -> dict:
         "lidar": {
             "name": lidar.getName(),
             "num_layers": lidar.getNumberOfLayers(),
-            "horizontal_resolution": lidar.getWidth(),
+            # 注意: Webots Python API 中 Lidar 没有 getWidth() 方法
+            # 水平分辨率由 init 阶段从 getRangeImage() 反算得到
+            "horizontal_resolution": lidar_width,
             "fov": lidar.getFov(),
             "vertical_fov": lidar.getVerticalFov(),
             "min_range": lidar.getMinRange(),
@@ -92,13 +71,13 @@ def _make_lidar_msg(ranges: list, num_layers: int, horiz_res: int, ts_us: int) -
 def main():
     robot = Robot()
     timestep = int(robot.getBasicTimeStep())
-    print(f"[CTRL] Controller (ZMQ) started, timestep={timestep}ms", file=sys.stderr)
+    print(f"[CTRL] Controller (ZMQ) started, timestep={timestep}ms")
 
     # ── 获取设备 ──────────────────────────────────────────
     camera = robot.getDevice("海康CA01610UC")
     lidar  = robot.getDevice("览沃Mid360")
     if not camera or not lidar:
-        print("[CTRL] ERROR: devices not found", file=sys.stderr)
+        print("[CTRL] ERROR: devices not found")
         sys.exit(1)
 
     camera.enable(timestep)
@@ -108,10 +87,17 @@ def main():
 
     cam_w, cam_h = camera.getWidth(), camera.getHeight()
     lidar_layers = lidar.getNumberOfLayers()
-    lidar_width  = lidar.getWidth()
-    print(f"[CTRL] Camera: {cam_w}x{cam_h}", file=sys.stderr)
-    print(f"[CTRL] LiDAR:  {lidar_layers} layers × {lidar_width} pts",
-          file=sys.stderr)
+
+    # Webots Python API: Lidar 没有 getWidth() 方法
+    # 水平分辨率 = len(range_image) // 层数
+    # 注意: getRangeImage() 在 enable + 一步 step 之后才有数据
+    _temp_ranges = lidar.getRangeImage()
+    if _temp_ranges:
+        lidar_width = len(_temp_ranges) // lidar_layers
+    else:
+        lidar_width = 360  # fallback: 与 .wbt 中默认 width 一致
+    print(f"[CTRL] Camera: {cam_w}x{cam_h}")
+    print(f"[CTRL] LiDAR:  {lidar_layers} layers × {lidar_width} pts")
 
     # ── ZMQ PUB 套接字 ────────────────────────────────────
     context = zmq.Context()
@@ -119,18 +105,18 @@ def main():
     publisher.setsockopt(zmq.SNDHWM, 4)   # 最多缓冲 4 帧, 防内存堆积
     publisher.setsockopt(zmq.LINGER, 0)   # 退出时立即丢弃未发送消息
     publisher.bind(f"tcp://*:{ZMQ_PORT}")
-    print(f"[CTRL] ZMQ PUB bound to tcp://*:{ZMQ_PORT}", file=sys.stderr)
+    print(f"[CTRL] ZMQ PUB bound to tcp://*:{ZMQ_PORT}")
 
     # ── ZMQ "Slow Joiner" 问题 ────────────────────────────
     # 在 PUB 上 bind() 之后马上 send(), 刚连接的 SUB 可能收不到
     # 前几条消息。这是 ZMQ 内部传播 subscription 需要时间。
     # 解决: 短暂等待 + 周期性重发 info 消息。
-    info_dict = _make_info_dict(robot, camera, lidar)
+    info_dict = _make_info_dict(robot, camera, lidar, lidar_width)
     info_bytes = json.dumps(info_dict, ensure_ascii=False).encode("utf-8")
 
     time_module.sleep(1.0)  # 给潜在订阅者连接时间
     publisher.send_multipart([b"info", info_bytes])
-    print("[CTRL] Info published (initial)", file=sys.stderr)
+    print("[CTRL] Info published (initial)")
 
     # ── 仿真主循环 ────────────────────────────────────────
     step_count = 0
@@ -139,7 +125,7 @@ def main():
             ts_us = int(robot.getTime() * 1_000_000)
             step_count += 1
 
-            # ── 相机 (一次性发送多部分消息) ──────────────
+            # ── 相机 ────────────────────────────────────
             img = camera.getImage()
             if img is not None:
                 cam_payload = _make_camera_msg(img, cam_w, cam_h, ts_us)
@@ -166,14 +152,14 @@ def main():
                     pass
 
     except KeyboardInterrupt:
-        print("[CTRL] Stopped by user", file=sys.stderr)
+        print("[CTRL] Stopped by user")
     except Exception as e:
-        print(f"[CTRL] FATAL: {e}", file=sys.stderr)
-        traceback.print_exc(file=sys.stderr)
+        print(f"[CTRL] FATAL: {e}")
+        traceback.print_exc()
     finally:
         publisher.close(linger=0)
         context.term()
-        print("[CTRL] ZMQ context terminated", file=sys.stderr)
+        print("[CTRL] ZMQ context terminated")
 
 
 if __name__ == "__main__":
