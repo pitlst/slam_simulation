@@ -78,10 +78,9 @@ def _make_lidar_msg(ranges: list, num_layers: int, horiz_res: int, ts_us: int) -
     return header + struct.pack(fmt, *ranges)
 
 
-def _lidar_to_pointcloud(ranges: list, num_layers: int, horiz_res: int,
-                          fov: float, vfov: float) -> np.ndarray:
+def _lidar_to_pointcloud(ranges: list, num_layers: int, horiz_res: int, fov: float, vfov: float) -> np.ndarray:
     """Convert LiDAR ranges to 3D point cloud (N, 3) via vectorized numpy"""
-    ranges = np.asarray(ranges, dtype=np.float32).reshape(num_layers, horiz_res)
+    ranges = np.asarray(ranges, dtype=np.float32).reshape(num_layers, horiz_res) # type: ignore
 
     # angle at each bin centre
     h_angles = np.linspace(-fov/2, fov/2, horiz_res, endpoint=False) \
@@ -101,7 +100,7 @@ def _lidar_to_pointcloud(ranges: list, num_layers: int, horiz_res: int,
     y_fwd   = ranges * cos_phi * np.cos(theta)  # forward
     z_up    = ranges * sin_phi                   # up
 
-    mask = np.isfinite(ranges) & (ranges > 0)
+    mask = np.isfinite(ranges) & (ranges > 0) # type: ignore
 
     # Convert to Rerun RIGHT_HAND_Z_UP (X=right, Y=forward, Z=up):
     #   rerun_x = -left  → right

@@ -9,3 +9,4 @@ textFiles: -1
 globalOptionalRendering: CoordinateSystem
 consoles: Console:All:All
 renderingDevicePerspectives: handheld_scanner:HikvisionCA01610UC;1;1;0;0
+renderingDevicePerspectives: handheld_scanner:MV-CS016-10UC-V5;1;1;0;0
