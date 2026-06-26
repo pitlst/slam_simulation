@@ -83,10 +83,8 @@ def _lidar_to_pointcloud(ranges: list, num_layers: int, horiz_res: int, fov: flo
     ranges = np.asarray(ranges, dtype=np.float32).reshape(num_layers, horiz_res) # type: ignore
 
     # angle at each bin centre
-    h_angles = np.linspace(-fov/2, fov/2, horiz_res, endpoint=False) \
-               + fov / (2 * horiz_res)
-    v_angles = np.linspace(-vfov/2, vfov/2, num_layers, endpoint=False) \
-               + vfov / (2 * num_layers)
+    h_angles = np.linspace(-fov/2, fov/2, horiz_res, endpoint=False) + fov / (2 * horiz_res)
+    v_angles = np.linspace(-vfov/2, vfov/2, num_layers, endpoint=False) + vfov / (2 * num_layers)
 
     theta = h_angles[np.newaxis, :]   # (1, horiz_res)
     phi   = v_angles[:, np.newaxis]    # (num_layers, 1)
