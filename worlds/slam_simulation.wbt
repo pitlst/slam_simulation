@@ -160,5 +160,6 @@ Robot {
     }
   ]
   name "handheld_scanner"
-  controller "my_controller"
+  controller "my_controller_version_2"
+  supervisor TRUE
 }
