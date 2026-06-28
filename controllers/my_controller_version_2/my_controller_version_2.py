@@ -42,6 +42,15 @@ def main():
                 if key == ord('q') or key == 27:
                     logger.info("用户要求退出")
                     break
+            ranges = lidar.getRangeImage()
+            if ranges is not None:
+                logger.debug(f"ranges 是 {ranges}")
+            accel = imu_accel.getValues()
+            if accel is not None:
+                logger.debug(f"accel 是 {accel}")
+            gyro  = imu_gyro.getValues()
+            if gyro is not None:
+                logger.debug(f"gyro 是 {gyro}")
     except KeyboardInterrupt:
         logger.info("用户要求退出")
     except Exception as e:
