@@ -1,6 +1,5 @@
 import zmq
-import pickle
-import numpy as np
+import json
 import cv2
 from loguru import logger
 
@@ -16,7 +15,7 @@ logger.info("订阅端已连接，等待 Webots 数据...")
 try:
     while True:
         topic, payload = socket.recv_multipart()
-        data = pickle.loads(payload)
+        data = json.loads(payload)
         ts = data["timestamp"]
 
         if topic == b"camera":

@@ -3,7 +3,7 @@ import zmq
 import numpy as np
 import time
 import threading
-import pickle
+import zlib
 import queue
 import traceback
 from loguru import logger
@@ -18,7 +18,7 @@ QUEUE_SIZE = 100                # 队列深度，防止订阅端消费慢时内�
 
 DATA_QUEUE = queue.Queue(maxsize=QUEUE_SIZE)
 
-VISUALIZATION = False
+VISUALIZATION = False  # 是否可视化
 
 
 @dataclass
@@ -32,7 +32,7 @@ class sersor_object:
 
 def enqueue(topic: bytes, data: dict):
     '''非阻塞放入队列。队列满时自动丢弃最旧的一帧，保证仿真绝不卡顿'''
-    payload = pickle.dumps(data, protocol=pickle.HIGHEST_PROTOCOL)
+    payload = json.dumps(data)
     try:
         DATA_QUEUE.put_nowait((topic, payload))
     except queue.Full:
