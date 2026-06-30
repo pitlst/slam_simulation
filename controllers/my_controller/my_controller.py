@@ -7,7 +7,7 @@ import time as time_module
 import numpy as np
 import cv2
 import rerun as rr
-from controller import Robot # type: ignore
+from controller import Robot
 
 
 # ============================================================

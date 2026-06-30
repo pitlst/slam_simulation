@@ -10,3 +10,4 @@ wheels/
 .venv
 .omo
 uv.lock
+.reasonix
