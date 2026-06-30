@@ -16,8 +16,8 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 0.042677669123494966 -0.9965528016512455 -0.07114161988062336 5.442568189341846
-  position -13.615594281465107 -0.9512442820186999 19.38637380702728
+  orientation 0.0991128012398874 -0.31550442886024715 -0.9437338650276103 5.737371263062438
+  position -4.023496685865944 -2.2107552019278276 1.8660024123045156
 }
 TexturedBackground {
 }
@@ -34,7 +34,8 @@ Solid {
   }
 }
 Solid {
-  translation -0.19 0.61 0.28
+  translation -0.19 0.61 0.09058165692348703
+  rotation 0.9977850347981719 -0.060043701209095336 -0.028631770429432934 5.3618451343485155e-18
   children [
     Shape {
       appearance Appearance {
@@ -53,9 +54,12 @@ Solid {
   }
   physics Physics {
   }
+  linearVelocity -3.0664200743201023e-20 -8.227404873307237e-18 6.192304274726069e-06
+  angularVelocity 1.3374922084895995e-16 -1.0060782099258073e-17 6.379517380966329e-20
 }
 Solid {
-  translation 2.78 1 0.97
+  translation 2.78 1 0.48037968907724804
+  rotation -0.9656143745658561 -0.2599731008446534 -0.0016930649740408393 9.403748889491726e-18
   children [
     Shape {
       appearance Appearance {
@@ -74,6 +78,8 @@ Solid {
   }
   physics Physics {
   }
+  linearVelocity 1.690122882608319e-17 1.782930268480445e-17 2.8321809567891617e-06
+  angularVelocity -2.1827872842550278e-17 6.548361852765083e-17 1.1685350983732635e-18
 }
 Robot {
   translation 0 0 0.2
@@ -95,7 +101,7 @@ Robot {
       height 1080
     }
     Solid {
-      translation 0 -0.05 0
+      translation 6.938893903907228e-18 -0.05 -1.5680463327616412e-05
       children [
         Accelerometer {
           name "imu_accelerometer"
@@ -112,6 +118,7 @@ Robot {
         density -1
         mass 1
       }
+      linearVelocity 0 0 -1.213921088378956e-07
     }
     Pose {
       translation 0 -0.05 0
