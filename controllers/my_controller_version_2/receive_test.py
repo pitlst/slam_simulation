@@ -68,7 +68,7 @@ try:
                 img = np.frombuffer(raw_bytes, dtype=np.uint8).reshape((h, w, c))
 
                 # logger.debug(f"[camera] ts={timestamp:.3f} shape={img.shape}")
-                cv2.imshow(OPENCV_TITLE, img)
+                # cv2.imshow(OPENCV_TITLE, img)
 
             elif topic == b"lidar":
                 FPS_STATS[b"lidar"] += 1
@@ -86,10 +86,10 @@ try:
                 timestamp, x, y, z = struct.unpack("<dddd", payload)
                 # logger.debug(f"[gyro]   ts={timestamp:.3f} data=[{x:.4f}, {y:.4f}, {z:.4f}]")
 
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q') or key == 27:
-            logger.info("用户要求退出")
-            break
+        # key = cv2.waitKey(1) & 0xFF
+        # if key == ord('q') or key == 27:
+        #     logger.info("用户要求退出")
+        #     break
 
 except KeyboardInterrupt:
     logger.warning("\n关闭订阅端")
