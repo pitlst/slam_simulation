@@ -4,6 +4,7 @@ import numpy as np
 import time
 import threading
 import zlib
+import struct
 import queue
 import traceback
 from loguru import logger
@@ -30,9 +31,27 @@ class sersor_object:
     imu_gyro: Gyro
 
 
-def enqueue(topic: bytes, data: dict):
+def pack_camera(timestamp: float, img: np.ndarray) -> bytes:
+    h, w, c = img.shape
+    raw_bytes = img.tobytes()
+    compressed = zlib.compress(raw_bytes, level=6)
+    header = struct.pack("<dIII", timestamp, w, h, c)
+    header += struct.pack("<II", len(compressed), len(raw_bytes))
+    return header + compressed
+
+
+def pack_lidar(timestamp: float, points: list[float]) -> bytes:
+    pts = np.asarray(points, dtype=np.float32)
+    header = struct.pack("<dI", timestamp, len(pts))
+    return header + pts.tobytes()
+
+
+def pack_vector3(timestamp: float, x: float, y: float, z: float) -> bytes:
+    return struct.pack("<dddd", timestamp, x, y, z)
+
+
+def enqueue(topic: bytes, payload: bytes):
     '''非阻塞放入队列。队列满时自动丢弃最旧的一帧，保证仿真绝不卡顿'''
-    payload = json.dumps(data)
     try:
         DATA_QUEUE.put_nowait((topic, payload))
     except queue.Full:
@@ -108,37 +127,24 @@ def main():
                         logger.info("用户要求退出")
                         break
 
-                enqueue(b"camera", {
-                    "timestamp": robot.getTime(),
-                    "data": frame_bgr,
-                    "encoding": "bgr8"
-                })
+                enqueue(b"camera", pack_camera(robot.getTime(), frame_bgr))
             ranges = lidar.getRangeImage()
             if ranges is not None:
                 if VISUALIZATION:
                     logger.debug(f"ranges 是 {ranges}")
-                enqueue(b"lidar", {
-                    "timestamp": robot.getTime(),
-                    "data": np.array(ranges, dtype=np.float32),
-                })
+                enqueue(b"lidar", pack_lidar(robot.getTime(), ranges))
 
             accel = imu_accel.getValues()
             if accel is not None:
                 if VISUALIZATION:
                     logger.debug(f"accel 是 {accel}")
-                enqueue(b"accel", {
-                    "timestamp": robot.getTime(),
-                    "data": np.array(accel, dtype=np.float32),
-                })
+                enqueue(b"accel", pack_vector3(robot.getTime(), accel[0], accel[1], accel[2]))
 
             gyro = imu_gyro.getValues()
             if gyro is not None:
                 if VISUALIZATION:
                     logger.debug(f"gyro 是 {gyro}")
-                enqueue(b"gyro", {
-                    "timestamp": robot.getTime(),
-                    "data": np.array(gyro, dtype=np.float32),
-                })
+                enqueue(b"gyro", pack_vector3(robot.getTime(), gyro[0], gyro[1], gyro[2]))
     except KeyboardInterrupt:
         logger.info("用户要求退出")
     except Exception:
