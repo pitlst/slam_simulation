@@ -3,7 +3,7 @@ import zmq
 import numpy as np
 import time
 import threading
-import zlib
+import zstandard
 import struct
 import queue
 import traceback
@@ -21,6 +21,9 @@ DATA_QUEUE = queue.Queue(maxsize=QUEUE_SIZE)
 
 VISUALIZATION = False  # 是否可视化
 
+FPS_STATS = {b"camera": 0, b"lidar": 0, b"accel": 0, b"gyro": 0}
+FPS_LAST_PRINT_TIME = time.time()
+
 
 @dataclass
 class sersor_object:
@@ -31,10 +34,13 @@ class sersor_object:
     imu_gyro: Gyro
 
 
+compressor = zstandard.ZstdCompressor(level=3)
+
+
 def pack_camera(timestamp: float, img: np.ndarray) -> bytes:
     h, w, c = img.shape
     raw_bytes = img.tobytes()
-    compressed = zlib.compress(raw_bytes, level=6)
+    compressed = compressor.compress(raw_bytes)
     header = struct.pack("<dIII", timestamp, w, h, c)
     header += struct.pack("<II", len(compressed), len(raw_bytes))
     return header + compressed
@@ -52,6 +58,9 @@ def pack_vector3(timestamp: float, x: float, y: float, z: float) -> bytes:
 
 def enqueue(topic: bytes, payload: bytes):
     '''非阻塞放入队列。队列满时自动丢弃最旧的一帧，保证仿真绝不卡顿'''
+    global FPS_STATS
+    FPS_STATS[topic] = FPS_STATS.get(topic, 0) + 1
+
     try:
         DATA_QUEUE.put_nowait((topic, payload))
     except queue.Full:
@@ -70,7 +79,7 @@ def sender_thread_func(socket: zmq.SyncSocket) -> None:
 
 
 def main():
-    global TIMESTEP
+    global TIMESTEP, FPS_LAST_PRINT_TIME, FPS_STATS
     # zmq init
     context = zmq.Context()
     socket = context.socket(zmq.PUB)
@@ -116,6 +125,19 @@ def main():
 
     try:
         while robot.step(TIMESTEP) != -1:
+            # 打印帧率
+            now = time.time()
+            if now - FPS_LAST_PRINT_TIME >= 1.0:
+                elapsed = now - FPS_LAST_PRINT_TIME
+                cam = FPS_STATS.get(b"camera", 0) / elapsed
+                lid = FPS_STATS.get(b"lidar", 0) / elapsed
+                acc = FPS_STATS.get(b"accel", 0) / elapsed
+                gyr = FPS_STATS.get(b"gyro", 0) / elapsed
+                logger.info(f"[FPS] camera={cam:.1f} | lidar={lid:.1f} | accel={acc:.1f} | gyro={gyr:.1f}")
+                # 重置计数器
+                FPS_STATS = {b"camera": 0, b"lidar": 0, b"accel": 0, b"gyro": 0}
+                FPS_LAST_PRINT_TIME = now
+
             frame = camera.getImage()
             if frame is not None:
                 frame_array = np.frombuffer(frame, dtype=np.uint8).reshape((cam_h, cam_w, 4))
